@@ -86,6 +86,12 @@ pnpm dev
 
 3. Access the admin interface at `http://localhost:3000`
 
+### Screenshots
+
+![](assets/devices-1.png)
+![](assets/llm-chat-1.png)
+![](assets/settings-1.png)
+
 ## API Endpoints
 
 ### Device Management
@@ -115,3 +121,4 @@ pnpm dev
 ## License
 
 MIT
+
