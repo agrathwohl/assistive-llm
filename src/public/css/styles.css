@@ -39,7 +39,7 @@ ul {
 header {
   background-color: white;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  padding: 1rem 2rem;
+  padding: 0.5rem 2rem;
   position: fixed;
   top: 0;
   left: 0;
@@ -48,21 +48,23 @@ header {
 }
 
 header h1 {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.25rem;
   color: var(--primary-color);
+  font-size: 1.5rem;
 }
 
 nav ul {
   display: flex;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
 
 nav a {
   color: var(--text-light);
   font-weight: 500;
-  padding: 0.5rem 0;
+  padding: 0.25rem 0;
   border-bottom: 2px solid transparent;
   transition: all 0.3s ease;
+  font-size: 0.95rem;
 }
 
 nav a:hover {
@@ -77,7 +79,7 @@ nav a.active {
 /* Main content */
 main {
   max-width: 1200px;
-  margin: 6rem auto 2rem;
+  margin: 6.5rem auto 2rem;
   padding: 0 1.5rem;
 }
 
@@ -86,6 +88,7 @@ main {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 1.5rem;
+  padding-top: 1rem;
 }
 
 /* Page visibility */
@@ -95,6 +98,7 @@ main {
 
 .page.active {
   display: block;
+  padding-top: 0.5rem;
 }
 
 /* Card list */
