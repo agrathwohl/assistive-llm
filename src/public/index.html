@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Assistive T140 Admin</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Assistive T140 Admin</h1>
+    <nav>
+      <ul>
+        <li><a href="#" class="active" data-page="devices">Devices</a></li>
+        <li><a href="#" data-page="llm">LLM Chat</a></li>
+        <li><a href="#" data-page="settings">Settings</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Devices Page -->
+    <section id="devices-page" class="page active">
+      <div class="section-header">
+        <h2>Manage Assistive Devices</h2>
+        <button id="add-device-btn" class="primary-btn">Add Device</button>
+      </div>
+
+      <div class="device-list-container">
+        <h3>Registered Devices</h3>
+        <div id="device-list" class="card-list">
+          <!-- Devices will be loaded here -->
+          <div class="loading">Loading devices...</div>
+        </div>
+      </div>
+
+      <div class="connection-list-container">
+        <h3>Active Connections</h3>
+        <div id="connection-list" class="card-list">
+          <!-- Connections will be loaded here -->
+          <div class="loading">Loading connections...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- LLM Chat Page -->
+    <section id="llm-page" class="page">
+      <div class="section-header">
+        <h2>LLM Chat Interface</h2>
+      </div>
+
+      <div class="llm-controls">
+        <div class="form-group">
+          <label for="target-devices">Select Devices:</label>
+          <select id="target-devices" multiple>
+            <!-- Devices will be loaded here -->
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="llm-provider">LLM Provider:</label>
+          <select id="llm-provider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="prompt-input">Prompt:</label>
+          <textarea id="prompt-input" rows="4" placeholder="Enter your prompt here..."></textarea>
+        </div>
+
+        <button id="send-prompt-btn" class="primary-btn">Send to Devices</button>
+      </div>
+
+      <div class="llm-status">
+        <h3>Status</h3>
+        <div id="llm-status-display" class="status-display">
+          No active streams
+        </div>
+      </div>
+    </section>
+
+    <!-- Settings Page -->
+    <section id="settings-page" class="page">
+      <div class="section-header">
+        <h2>System Settings</h2>
+      </div>
+
+      <div class="settings-container">
+        <div class="form-group">
+          <label for="openai-api-key">OpenAI API Key:</label>
+          <input type="password" id="openai-api-key" placeholder="Enter OpenAI API Key">
+        </div>
+
+        <div class="form-group">
+          <label for="anthropic-api-key">Anthropic API Key:</label>
+          <input type="password" id="anthropic-api-key" placeholder="Enter Anthropic API Key">
+        </div>
+
+        <div class="form-group">
+          <label for="default-provider">Default LLM Provider:</label>
+          <select id="default-provider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="char-rate-limit">Default Character Rate Limit:</label>
+          <input type="number" id="char-rate-limit" value="30" min="1" max="100">
+        </div>
+
+        <button id="save-settings-btn" class="primary-btn">Save Settings</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Device Form Modal -->
+  <div id="device-modal" class="modal">
+    <div class="modal-content">
+      <span class="close-btn">&times;</span>
+      <h2 id="modal-title">Add New Device</h2>
+      
+      <form id="device-form">
+        <input type="hidden" id="device-id">
+        
+        <div class="form-group">
+          <label for="device-name">Device Name:</label>
+          <input type="text" id="device-name" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="device-type">Device Type:</label>
+          <select id="device-type" required>
+            <option value="hearing">Hearing Device</option>
+            <option value="visual">Visual Device</option>
+            <option value="mobility">Mobility Device</option>
+            <option value="cognitive">Cognitive Device</option>
+            <option value="multi">Multi-Purpose Device</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="device-ip">IP Address:</label>
+          <input type="text" id="device-ip" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="device-port">Port:</label>
+          <input type="number" id="device-port" required min="1" max="65535">
+        </div>
+        
+        <div class="form-group">
+          <label for="device-protocol">Protocol:</label>
+          <select id="device-protocol" required>
+            <option value="websocket">WebSocket</option>
+            <option value="rtp">RTP</option>
+          </select>
+        </div>
+        
+        <div class="form-group">
+          <label for="char-rate">Character Rate Limit:</label>
+          <input type="number" id="char-rate" value="30" min="1" max="100">
+        </div>
+        
+        <div class="form-group">
+          <label for="backspace-processing">Process Backspaces:</label>
+          <input type="checkbox" id="backspace-processing" checked>
+        </div>
+        
+        <div class="form-actions">
+          <button type="submit" class="primary-btn">Save Device</button>
+          <button type="button" class="secondary-btn cancel-btn">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>
