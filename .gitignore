@@ -26,3 +26,5 @@ node_modules/
 !rollup.config.js
 
 logs/*
+
+CLAUDE.md
