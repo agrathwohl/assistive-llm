@@ -156,17 +156,30 @@
           <select id="device-protocol" required>
             <option value="websocket">WebSocket</option>
             <option value="rtp">RTP</option>
+            <option value="srtp">SRTP (Secure)</option>
+            <option value="unix-stream">Unix Socket (Stream)</option>
+            <option value="unix-seqpacket">Unix Socket (SeqPacket)</option>
           </select>
         </div>
-        
+
         <div class="form-group">
           <label for="char-rate">Character Rate Limit:</label>
           <input type="number" id="char-rate" value="30" min="1" max="100">
         </div>
-        
+
         <div class="form-group">
           <label for="backspace-processing">Process Backspaces:</label>
           <input type="checkbox" id="backspace-processing" checked>
+        </div>
+
+        <div class="form-group">
+          <label for="enable-fec">Enable FEC (Forward Error Correction):</label>
+          <input type="checkbox" id="enable-fec">
+        </div>
+
+        <div class="form-group">
+          <label for="enable-red">Enable RED (Redundancy):</label>
+          <input type="checkbox" id="enable-red">
         </div>
         
         <div class="form-actions">
