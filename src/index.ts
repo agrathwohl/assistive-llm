@@ -14,8 +14,9 @@ import { DeviceService } from './services/device.service';
 const app = express() as any;
 const wsInstance = expressWs(app);
 
-// Initialize device service
+// Initialize services
 const deviceService = new DeviceService();
+const conversationService = new (require('./services/conversation.service').ConversationService)();
 
 // Middleware
 app.use(express.json());

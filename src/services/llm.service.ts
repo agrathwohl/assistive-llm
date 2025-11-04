@@ -1,14 +1,17 @@
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import { 
-  AssistiveDevice, 
-  DeviceConnection, 
-  T140WebSocketConnection, 
-  T140RtpTransport 
+import { v4 as uuidv4 } from 'uuid';
+import {
+  AssistiveDevice,
+  DeviceConnection,
+  ConversationMessage,
+  StreamMetadata,
+  T140Transport
 } from '../interfaces/device.interface';
 import { config } from '../config/config';
 import { logger } from '../utils/logger';
 import { DeviceService } from './device.service';
+import { ConversationService } from './conversation.service';
 
 /**
  * Service for handling LLM interactions and streaming to assistive devices
@@ -17,12 +20,15 @@ export class LLMService {
   private openai: OpenAI | null = null;
   private anthropic: Anthropic | null = null;
   private deviceService: DeviceService;
-  
-  constructor(deviceService: DeviceService) {
+  private conversationService: ConversationService;
+  private activeStreams: Map<string, { conversationId: string; messageId: string }> = new Map();
+
+  constructor(deviceService: DeviceService, conversationService: ConversationService) {
     this.deviceService = deviceService;
+    this.conversationService = conversationService;
     this.initializeLLMClients();
   }
-  
+
   /**
    * Initialize LLM clients based on configuration
    */
@@ -36,7 +42,7 @@ export class LLMService {
     } else {
       logger.warn('OpenAI API key not provided, client not initialized');
     }
-    
+
     // Initialize Anthropic if API key is provided
     if (config.llm.anthropic.apiKey) {
       this.anthropic = new Anthropic({
@@ -47,163 +53,256 @@ export class LLMService {
       logger.warn('Anthropic API key not provided, client not initialized');
     }
   }
-  
+
   /**
    * Get status of LLM providers
    */
-  getProvidersStatus(): { provider: string, available: boolean }[] {
+  getProvidersStatus(): { provider: string; available: boolean; model: string }[] {
     return [
-      { provider: 'openai', available: !!this.openai },
-      { provider: 'anthropic', available: !!this.anthropic }
+      {
+        provider: 'openai',
+        available: !!this.openai,
+        model: config.llm.openai.model
+      },
+      {
+        provider: 'anthropic',
+        available: !!this.anthropic,
+        model: config.llm.anthropic.model
+      }
     ];
   }
-  
+
   /**
-   * Stream LLM response to a specific device
+   * Stream LLM response to a specific device using native t140llm API
    */
   async streamToDevice(
-    deviceId: string, 
-    prompt: string, 
-    provider: 'openai' | 'anthropic' = config.llm.defaultProvider as 'openai' | 'anthropic'
-  ): Promise<boolean> {
-    // Get device connection
+    deviceId: string,
+    prompt: string,
+    provider: 'openai' | 'anthropic' = config.llm.defaultProvider as 'openai' | 'anthropic',
+    conversationHistory?: ConversationMessage[]
+  ): Promise<{ success: boolean; conversationId: string; messageId: string; error?: string }> {
     const connection = this.deviceService.getActiveConnection(deviceId);
-    
+
     if (!connection) {
-      logger.error(`Cannot stream to device ${deviceId}: Device not connected`);
-      return false;
+      const error = `Cannot stream to device ${deviceId}: Device not connected`;
+      logger.error(error);
+      return { success: false, conversationId: '', messageId: '', error };
     }
-    
+
+    const conversationId = this.conversationService.createConversation([deviceId]);
+    const messageId = uuidv4();
+
+    // Add user message
+    await this.conversationService.addMessage(conversationId, {
+      role: 'user',
+      content: prompt,
+      deviceIds: [deviceId],
+      provider,
+      model: provider === 'openai' ? config.llm.openai.model : config.llm.anthropic.model
+    });
+
+    this.conversationService.recordStreamStart({
+      conversationId,
+      messageId,
+      deviceIds: [deviceId],
+      provider,
+      model: provider === 'openai' ? config.llm.openai.model : config.llm.anthropic.model,
+      prompt,
+      startTime: new Date()
+    });
+
     try {
-      // Get stream based on provider
+      const messages = this.buildMessagesArray(prompt, conversationHistory);
       let stream;
-      
+
       if (provider === 'openai' && this.openai) {
-        stream = await this.getOpenAIStream(prompt);
+        stream = await this.getOpenAIStream(messages);
       } else if (provider === 'anthropic' && this.anthropic) {
-        stream = await this.getAnthropicStream(prompt);
+        stream = await this.getAnthropicStream(messages);
       } else {
         throw new Error(`Provider ${provider} not available`);
       }
-      
-      // Attach stream to device transport
-      this.attachStreamToDevice(stream, connection);
-      
-      logger.info(`Started streaming LLM response to device: ${connection.device.name} (${deviceId})`);
-      return true;
+
+      // Use t140llm's native attachStream method if available
+      if (connection.transport.attachStream) {
+        await connection.transport.attachStream(stream, {
+          processBackspaces: connection.device.settings.backspaceProcessing ?? true,
+          charRateLimit: connection.device.settings.characterRateLimit ?? config.t140.charRateLimit,
+          enableFEC: connection.device.settings.enableFEC ?? config.t140.enableFEC,
+          enableRED: connection.device.settings.enableRED ?? config.t140.enableRED,
+          redundancyGenerations: connection.device.settings.redundancyGenerations ?? config.t140.redundancyGenerations
+        });
+
+        logger.info(`Stream attached to device ${deviceId} using native t140llm API`);
+      }
+
+      // Record completion
+      this.conversationService.recordStreamEnd(messageId, {
+        endTime: new Date()
+      });
+
+      return { success: true, conversationId, messageId };
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error(`Error streaming to device ${deviceId}:`, error);
-      return false;
+
+      this.conversationService.recordStreamEnd(messageId, {
+        endTime: new Date(),
+        error: errorMessage
+      });
+
+      return { success: false, conversationId, messageId, error: errorMessage };
     }
   }
-  
+
   /**
    * Stream LLM response to multiple devices
    */
   async streamToMultipleDevices(
-    deviceIds: string[], 
-    prompt: string, 
-    provider: 'openai' | 'anthropic' = config.llm.defaultProvider as 'openai' | 'anthropic'
-  ): Promise<{ deviceId: string, success: boolean }[]> {
-    const results: { deviceId: string, success: boolean }[] = [];
-    
-    // Get stream based on provider
-    let stream;
-    
+    deviceIds: string[],
+    prompt: string,
+    provider: 'openai' | 'anthropic' = config.llm.defaultProvider as 'openai' | 'anthropic',
+    conversationHistory?: ConversationMessage[]
+  ): Promise<{ success: boolean; conversationId: string; messageId: string; error?: string; results?: { deviceId: string; success: boolean }[] }> {
+    const conversationId = this.conversationService.createConversation(deviceIds);
+    const messageId = uuidv4();
+
+    // Add user message to conversation
+    await this.conversationService.addMessage(conversationId, {
+      role: 'user',
+      content: prompt,
+      deviceIds,
+      provider,
+      model: provider === 'openai' ? config.llm.openai.model : config.llm.anthropic.model
+    });
+
+    // Record stream metadata
+    this.conversationService.recordStreamStart({
+      conversationId,
+      messageId,
+      deviceIds,
+      provider,
+      model: provider === 'openai' ? config.llm.openai.model : config.llm.anthropic.model,
+      prompt,
+      startTime: new Date()
+    });
+
     try {
-      if (provider === 'openai' && this.openai) {
-        stream = await this.getOpenAIStream(prompt);
-      } else if (provider === 'anthropic' && this.anthropic) {
-        stream = await this.getAnthropicStream(prompt);
-      } else {
-        throw new Error(`Provider ${provider} not available`);
-      }
-      
-      // Process each device
+      // Get connections for all devices
+      const results: { deviceId: string; success: boolean }[] = [];
+
       for (const deviceId of deviceIds) {
-        const connection = this.deviceService.getActiveConnection(deviceId);
-        
-        if (!connection) {
-          logger.warn(`Cannot stream to device ${deviceId}: Device not connected`);
-          results.push({ deviceId, success: false });
-          continue;
-        }
-        
-        try {
-          // Clone the stream for each device
-          // Note: This is a simplification - in a real implementation, we would need
-          // to handle stream cloning more carefully based on the specific LLM provider
-          this.attachStreamToDevice(stream, connection);
-          results.push({ deviceId, success: true });
-          logger.info(`Started streaming LLM response to device: ${connection.device.name} (${deviceId})`);
-        } catch (error) {
-          logger.error(`Error streaming to device ${deviceId}:`, error);
-          results.push({ deviceId, success: false });
-        }
+        const result = await this.streamToDevice(deviceId, prompt, provider, conversationHistory);
+        results.push({ deviceId, success: result.success });
       }
-      
-      return results;
+
+      // Record completion
+      this.conversationService.recordStreamEnd(messageId, {
+        endTime: new Date()
+      });
+
+      const allSuccess = results.every(r => r.success);
+
+      return {
+        success: allSuccess,
+        conversationId,
+        messageId,
+        results
+      };
     } catch (error) {
-      logger.error('Error getting LLM stream:', error);
-      return deviceIds.map(deviceId => ({ deviceId, success: false }));
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Error streaming to devices:`, error);
+
+      this.conversationService.recordStreamEnd(messageId, {
+        endTime: new Date(),
+        error: errorMessage
+      });
+
+      return { success: false, conversationId, messageId, error: errorMessage };
     }
   }
-  
+
+  /**
+   * Build messages array from prompt and history
+   */
+  private buildMessagesArray(
+    prompt: string,
+    conversationHistory?: ConversationMessage[]
+  ): Array<{ role: string; content: string }> {
+    const messages: Array<{ role: string; content: string }> = [];
+
+    // Add conversation history if provided
+    if (conversationHistory && conversationHistory.length > 0) {
+      conversationHistory.forEach(msg => {
+        messages.push({
+          role: msg.role === 'assistant' ? 'assistant' : 'user',
+          content: msg.content
+        });
+      });
+    }
+
+    // Add current prompt
+    messages.push({
+      role: 'user',
+      content: prompt
+    });
+
+    return messages;
+  }
+
   /**
    * Get a streaming response from OpenAI
    */
-  private async getOpenAIStream(prompt: string): Promise<any> {
+  private async getOpenAIStream(messages: Array<{ role: string; content: string }>): Promise<any> {
     if (!this.openai) {
       throw new Error('OpenAI client not initialized');
     }
-    
+
     const stream = await this.openai.chat.completions.create({
       model: config.llm.openai.model,
-      messages: [{ role: 'user', content: prompt }],
+      messages: messages as any,
       stream: true
     });
-    
+
     return stream;
   }
-  
+
   /**
    * Get a streaming response from Anthropic
    */
-  private async getAnthropicStream(prompt: string): Promise<any> {
+  private async getAnthropicStream(messages: Array<{ role: string; content: string }>): Promise<any> {
     if (!this.anthropic) {
       throw new Error('Anthropic client not initialized');
     }
-    
+
     const stream = await this.anthropic.messages.create({
       model: config.llm.anthropic.model,
-      messages: [{ role: 'user', content: prompt }],
+      messages: messages as any,
       max_tokens: 4000,
       stream: true
     });
-    
+
     return stream;
   }
-  
+
   /**
-   * Attach an LLM stream to a device transport
+   * Get conversation history
    */
-  private attachStreamToDevice(stream: any, connection: DeviceConnection): void {
-    // Get attach function based on protocol
-    if (connection.device.protocol === 'websocket') {
-      const transport = connection.transport as import('../interfaces/device.interface').T140WebSocketConnection;
-      if (!transport.attachStream) {
-        throw new Error('WebSocket transport does not have attachStream method');
-      }
-      transport.attachStream(stream, {
-        processBackspaces: connection.device.settings.backspaceProcessing
-      });
-    } else if (connection.device.protocol === 'rtp') {
-      const transport = connection.transport as import('../interfaces/device.interface').T140RtpTransport;
-      transport.attachStream(stream, {
-        processBackspaces: connection.device.settings.backspaceProcessing
-      });
-    } else {
-      throw new Error(`Unsupported protocol: ${connection.device.protocol}`);
-    }
+  getConversationHistory(conversationId: string): ConversationMessage[] {
+    return this.conversationService.getConversation(conversationId);
+  }
+
+  /**
+   * Get device conversations
+   */
+  getDeviceConversations(deviceId: string, limit?: number): ConversationMessage[] {
+    return this.conversationService.getDeviceConversations(deviceId, limit);
+  }
+
+  /**
+   * Clear conversation history
+   */
+  async clearConversation(conversationId: string): Promise<boolean> {
+    return this.conversationService.clearConversation(conversationId);
   }
 }

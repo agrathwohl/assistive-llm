@@ -26,7 +26,7 @@
     "express": "^4.18.3",
     "express-ws": "^5.0.2",
     "openai": "^4.33.0",
-    "t140llm": "file:../t140llm",
+    "t140llm": "github:agrathwohl/t140llm",
     "uuid": "^11.1.0",
     "winston": "^3.11.0"
   },
