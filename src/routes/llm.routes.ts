@@ -2,15 +2,17 @@ import { Router } from 'express';
 import { LLMController } from '../controllers/llm.controller';
 import { LLMService } from '../services/llm.service';
 import { ConversationService } from '../services/conversation.service';
+import { NotificationService } from '../services/notification.service';
 import { deviceService } from './device.routes';
 
 const router = Router();
 
-// Initialize conversation service
+// Initialize services
 const conversationService = new ConversationService();
+const notificationService = new NotificationService();
 
-// Initialize LLM service with both device and conversation services
-const llmService = new LLMService(deviceService, conversationService);
+// Initialize LLM service with device, conversation, and notification services
+const llmService = new LLMService(deviceService, conversationService, notificationService);
 const llmController = new LLMController(llmService);
 
 // GET available LLM providers
