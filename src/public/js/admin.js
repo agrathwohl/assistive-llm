@@ -18,13 +18,28 @@ const llmStatusDisplay = document.getElementById('llm-status-display');
 const navLinks = document.querySelectorAll('nav a');
 const pages = document.querySelectorAll('.page');
 
+// Notification Elements
+const notificationBell = document.getElementById('notification-bell');
+const notificationBadge = document.getElementById('notification-badge');
+const notificationPanel = document.getElementById('notification-panel');
+const notificationList = document.getElementById('notification-list');
+const closePanelBtn = document.getElementById('close-panel-btn');
+const markAllReadBtn = document.getElementById('mark-all-read-btn');
+const clearAllNotificationsBtn = document.getElementById('clear-all-notifications-btn');
+const notificationLevelFilter = document.getElementById('notification-level-filter');
+const notificationCategoryFilter = document.getElementById('notification-category-filter');
+const toastContainer = document.getElementById('toast-container');
+
 // API endpoints
 const API = {
   devices: '/api/devices',
   connections: '/api/devices/connections/active',
   llmProviders: '/api/llm/providers',
   streamToDevice: '/api/llm/stream',
-  streamToMultiple: '/api/llm/stream-multiple'
+  streamToMultiple: '/api/llm/stream-multiple',
+  notifications: '/api/notifications',
+  notificationsUnreadCount: '/api/notifications/unread/count',
+  notificationsMarkAllRead: '/api/notifications/read-all'
 };
 
 // Initialize the application
@@ -33,11 +48,15 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchDevices();
   fetchConnections();
   fetchLLMProviders();
-  
+  fetchNotifications();
+  updateUnreadCount();
+
   // Set up event listeners
   setupNavigation();
   setupDeviceModal();
   setupLLMControls();
+  setupNotifications();
+  setupWebSocket();
 });
 
 // Navigation
@@ -467,3 +486,256 @@ async function sendPromptToDevices() {
 // Refresh data periodically
 setInterval(fetchDevices, 10000);
 setInterval(fetchConnections, 5000);
+setInterval(fetchNotifications, 30000);
+setInterval(updateUnreadCount, 15000);
+
+// ========================================
+// Notification System
+// ========================================
+
+function setupNotifications() {
+  // Toggle notification panel
+  notificationBell.addEventListener('click', () => {
+    notificationPanel.classList.toggle('open');
+  });
+
+  // Close notification panel
+  closePanelBtn.addEventListener('click', () => {
+    notificationPanel.classList.remove('open');
+  });
+
+  // Mark all as read
+  markAllReadBtn.addEventListener('click', async () => {
+    try {
+      await fetch(API.notificationsMarkAllRead, { method: 'PUT' });
+      await fetchNotifications();
+      await updateUnreadCount();
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+    }
+  });
+
+  // Clear all notifications
+  clearAllNotificationsBtn.addEventListener('click', async () => {
+    if (!confirm('Are you sure you want to clear all notifications?')) {
+      return;
+    }
+    try {
+      await fetch(API.notifications, { method: 'DELETE' });
+      await fetchNotifications();
+      await updateUnreadCount();
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+    }
+  });
+
+  // Filter notifications
+  notificationLevelFilter.addEventListener('change', fetchNotifications);
+  notificationCategoryFilter.addEventListener('change', fetchNotifications);
+
+  // Request browser notification permission
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+async function fetchNotifications() {
+  try {
+    const level = notificationLevelFilter.value;
+    const category = notificationCategoryFilter.value;
+
+    const params = new URLSearchParams();
+    if (level) params.append('level', level);
+    if (category) params.append('category', category);
+
+    const url = `${API.notifications}${params.toString() ? '?' + params.toString() : ''}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!data.success) {
+      throw new Error('Failed to fetch notifications');
+    }
+
+    renderNotifications(data.notifications);
+  } catch (error) {
+    console.error('Error fetching notifications:', error);
+    notificationList.innerHTML = '<div class="loading">Error loading notifications</div>';
+  }
+}
+
+function renderNotifications(notifications) {
+  if (notifications.length === 0) {
+    notificationList.innerHTML = '<div class="loading">No notifications</div>';
+    return;
+  }
+
+  notificationList.innerHTML = '';
+
+  notifications.forEach(notification => {
+    const item = createNotificationItem(notification);
+    notificationList.appendChild(item);
+  });
+}
+
+function createNotificationItem(notification) {
+  const item = document.createElement('div');
+  item.className = `notification-item ${!notification.read ? 'unread' : ''}`;
+  item.dataset.id = notification.id;
+
+  const timeAgo = formatTimeAgo(new Date(notification.timestamp));
+
+  item.innerHTML = `
+    <div class="notification-item-header">
+      <h4 class="notification-title">${escapeHtml(notification.title)}</h4>
+      <span class="notification-time">${timeAgo}</span>
+    </div>
+    <p class="notification-message">${escapeHtml(notification.message)}</p>
+    <div class="notification-meta">
+      <span class="notification-level ${notification.level}">${notification.level}</span>
+      <span class="notification-category">${notification.category}</span>
+    </div>
+  `;
+
+  // Mark as read when clicked
+  item.addEventListener('click', async () => {
+    if (!notification.read) {
+      try {
+        await fetch(`${API.notifications}/${notification.id}/read`, { method: 'PUT' });
+        item.classList.remove('unread');
+        await updateUnreadCount();
+      } catch (error) {
+        console.error('Error marking notification as read:', error);
+      }
+    }
+  });
+
+  return item;
+}
+
+async function updateUnreadCount() {
+  try {
+    const response = await fetch(API.notificationsUnreadCount);
+    const data = await response.json();
+
+    if (data.success) {
+      if (data.count > 0) {
+        notificationBadge.textContent = data.count > 99 ? '99+' : data.count;
+        notificationBadge.style.display = 'block';
+      } else {
+        notificationBadge.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Error updating unread count:', error);
+  }
+}
+
+function showToast(notification) {
+  const toast = document.createElement('div');
+  toast.className = `toast ${notification.level}`;
+
+  const icon = getNotificationIcon(notification.level);
+
+  toast.innerHTML = `
+    <span class="toast-icon">${icon}</span>
+    <div class="toast-content">
+      <div class="toast-title">${escapeHtml(notification.title)}</div>
+      <div class="toast-message">${escapeHtml(notification.message)}</div>
+    </div>
+    <button class="toast-close">×</button>
+  `;
+
+  const closeBtn = toast.querySelector('.toast-close');
+  closeBtn.addEventListener('click', () => {
+    toast.remove();
+  });
+
+  toastContainer.appendChild(toast);
+
+  // Auto remove after 5 seconds
+  setTimeout(() => {
+    toast.remove();
+  }, 5000);
+
+  // Show browser notification for critical/error levels
+  if ((notification.level === 'critical' || notification.level === 'error') &&
+      'Notification' in window && Notification.permission === 'granted') {
+    new Notification(notification.title, {
+      body: notification.message,
+      icon: '/favicon.ico',
+      tag: notification.id
+    });
+  }
+}
+
+function getNotificationIcon(level) {
+  const icons = {
+    info: 'ℹ️',
+    success: '✅',
+    warning: '⚠️',
+    error: '❌',
+    critical: '🚨'
+  };
+  return icons[level] || 'ℹ️';
+}
+
+function formatTimeAgo(date) {
+  const seconds = Math.floor((new Date() - date) / 1000);
+
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+
+  return date.toLocaleDateString();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// WebSocket for real-time updates
+function setupWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${window.location.host}/ws/admin`);
+
+  ws.onopen = () => {
+    console.log('WebSocket connected');
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+
+      if (message.type === 'notification') {
+        // Show toast notification
+        showToast(message.data);
+
+        // Update notification list and unread count
+        fetchNotifications();
+        updateUnreadCount();
+      } else if (message.type === 'initial_data') {
+        // Handle initial data if needed
+        if (message.data.unreadCount) {
+          if (message.data.unreadCount > 0) {
+            notificationBadge.textContent = message.data.unreadCount > 99 ? '99+' : message.data.unreadCount;
+            notificationBadge.style.display = 'block';
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error processing WebSocket message:', error);
+    }
+  };
+
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error);
+  };
+
+  ws.onclose = () => {
+    console.log('WebSocket disconnected, attempting to reconnect...');
+    setTimeout(setupWebSocket, 5000);
+  };
+}

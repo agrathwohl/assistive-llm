@@ -23,6 +23,7 @@ import {
 } from '../interfaces/device.interface';
 import { config } from '../config/config';
 import { logger } from '../utils/logger';
+import { NotificationService } from './notification.service';
 
 // In-memory storage for active device connections
 const activeConnections: Map<string, DeviceConnection> = new Map();
@@ -41,6 +42,12 @@ const devicesFilePath = path.join(dataPath, 'devices.json');
  * Service to manage assistive devices
  */
 export class DeviceService {
+  private notificationService: NotificationService;
+
+  constructor() {
+    this.notificationService = new NotificationService();
+  }
+
   /**
    * Get all registered devices
    */
@@ -203,6 +210,10 @@ export class DeviceService {
       });
 
       logger.info(`Connected to device: ${device.name} (${id}) via ${device.protocol}`);
+
+      // Send notification
+      await this.notificationService.notifyDeviceConnected(id, device.name);
+
       return connection;
     } catch (error) {
       logger.error(`Error connecting to device ${id}:`, error);
@@ -211,6 +222,13 @@ export class DeviceService {
       await this.updateDevice(id, {
         status: DeviceStatus.ERROR
       });
+
+      // Send error notification
+      await this.notificationService.notifyDeviceError(
+        id,
+        device.name,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
 
       return null;
     }
@@ -344,6 +362,10 @@ export class DeviceService {
       await this.updateDevice(id, { status: DeviceStatus.OFFLINE });
 
       logger.info(`Disconnected from device: ${connection.device.name} (${id})`);
+
+      // Send notification
+      await this.notificationService.notifyDeviceDisconnected(id, connection.device.name);
+
       return true;
     } catch (error) {
       logger.error(`Error disconnecting from device ${id}:`, error);

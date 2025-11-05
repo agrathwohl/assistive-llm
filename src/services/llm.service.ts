@@ -12,6 +12,7 @@ import { config } from '../config/config';
 import { logger } from '../utils/logger';
 import { DeviceService } from './device.service';
 import { ConversationService } from './conversation.service';
+import { NotificationService } from './notification.service';
 
 /**
  * Service for handling LLM interactions and streaming to assistive devices
@@ -21,11 +22,13 @@ export class LLMService {
   private anthropic: Anthropic | null = null;
   private deviceService: DeviceService;
   private conversationService: ConversationService;
+  private notificationService: NotificationService;
   private activeStreams: Map<string, { conversationId: string; messageId: string }> = new Map();
 
-  constructor(deviceService: DeviceService, conversationService: ConversationService) {
+  constructor(deviceService: DeviceService, conversationService: ConversationService, notificationService?: NotificationService) {
     this.deviceService = deviceService;
     this.conversationService = conversationService;
+    this.notificationService = notificationService || new NotificationService();
     this.initializeLLMClients();
   }
 
@@ -111,6 +114,9 @@ export class LLMService {
       startTime: new Date()
     });
 
+    // Send start notification
+    await this.notificationService.notifyLLMStreamStarted(provider, deviceId, conversationId);
+
     try {
       const messages = this.buildMessagesArray(prompt, conversationHistory);
       let stream;
@@ -141,6 +147,9 @@ export class LLMService {
         endTime: new Date()
       });
 
+      // Send completion notification
+      await this.notificationService.notifyLLMStreamCompleted(provider, deviceId, conversationId);
+
       return { success: true, conversationId, messageId };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -150,6 +159,9 @@ export class LLMService {
         endTime: new Date(),
         error: errorMessage
       });
+
+      // Send error notification
+      await this.notificationService.notifyLLMError(provider, errorMessage, deviceId, conversationId);
 
       return { success: false, conversationId, messageId, error: errorMessage };
     }
