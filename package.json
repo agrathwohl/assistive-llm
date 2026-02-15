@@ -23,7 +23,7 @@
     "@anthropic-ai/sdk": "^0.39.0",
     "@types/uuid": "^10.0.0",
     "anthropic": "latest",
-    "express": "^4.18.3",
+    "express": "^4.22.1",
     "express-ws": "^5.0.2",
     "openai": "^4.33.0",
     "t140llm": "github:agrathwohl/t140llm",
